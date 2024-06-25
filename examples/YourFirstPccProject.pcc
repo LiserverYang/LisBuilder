@@ -1,0 +1,39 @@
+// Set platform
+// Platform list:
+// windows[win32, win64], maxos, linux
+platform(["windows"]);
+
+// Set project name
+project("YourProjectName");
+
+// Set any variables you need
+
+// And there is a list default variables
+// name              type   mean
+// compiler          string C++ compiler
+// compiler_version  string C++ compiler version
+// cpp_version       string C++ version
+// dependent_project list   3rd project
+// debug             bool   Debug version
+
+set("VariableName", "VariableValue");
+
+// You can get a variable value by this expression
+// ${VariableName}
+
+print(${VariableName});
+
+// if else statement can do condition
+
+if (ABoolExpression) sth
+else sth;
+
+// Compound statement can do a lot of things
+
+{
+    sth;
+    sth
+}
+
+// Remember the last statement has not ';'
+print("You did that!")

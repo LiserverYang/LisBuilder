@@ -1,0 +1,30 @@
+// Project compile configution
+
+platform(["windows"]);
+project("LisBuilder");
+
+set("output_dir", "./bin");
+set("source_dir", "./src");
+set("compiler", "g++");
+set("compiler_version", "^8.1.0");
+set("dependent_project", []);
+set("cpp_version", "20");
+
+set("files", deep_search_files(${source_dir}, ".cpp"));
+set("arguments", ["-I", "./src"]);
+
+if (${debug})
+{
+    append("arguments", ["-O0", "-D__DEBUG", "-g"])
+}
+else
+{
+    append("arguments", ["-O3"])
+};
+
+if (need_update(${files}, add(${output_dir}, add("/", ${project_name}))))
+{
+    compile_execute(${project_name}, ${output_dir}, ${files}, ${arguments})
+};
+
+print("Build done.")
