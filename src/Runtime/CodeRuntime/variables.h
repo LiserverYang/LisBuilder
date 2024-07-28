@@ -72,4 +72,14 @@ private:
     ValueType value; // 存储值
 };
 
+class Any
+{
+public:
+    // 重载 == 运算符，使其与任何 BasicType 返回 true
+    bool operator==(const BasicType &) const
+    {
+        return true;
+    }
+};
+
 #endif // __VARIBLES_H__

@@ -1,5 +1,5 @@
 #ifndef __SYMBOL_TABLE_H__
-#define __SYNBOL_TABLE_H__
+#define __SYMBOL_TABLE_H__
 
 #include <unordered_map>
 

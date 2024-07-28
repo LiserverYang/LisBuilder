@@ -14,7 +14,7 @@ int main(int argc, const char **argv)
     argument.parse(argc, argv);
 
     // run
-   run_file(argument.file_path);
+    run_file(argument.file_path);
 
     return 0;
 }
