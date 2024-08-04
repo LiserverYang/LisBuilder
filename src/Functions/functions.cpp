@@ -7,6 +7,8 @@ void init_functions()
     REGIST(project);
     REGIST(deep_search_files);
     REGIST(compile_execute);
+    REGIST(compile_share);
+    REGIST(compile_static);
     REGIST(print);
     REGIST(type);
     REGIST(need_update);

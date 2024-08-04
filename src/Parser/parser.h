@@ -18,7 +18,8 @@ namespace Parser
     StatementNode *parse_statement(TokenStream &stream);
     RunnableStatement *parse_runnable_statement(TokenStream &stream);
     std::vector<RunnableStatement *> parse_runnable_statementlist(TokenStream &stream);
-    AST parse(TokenStream& stream);
+    
+    AST parse(TokenStream &stream);
 };
 
 #endif // __PARSER_H__

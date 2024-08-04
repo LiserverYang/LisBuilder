@@ -54,7 +54,9 @@ void run(Parser::AST ast)
 
 void run_file(FileIO io)
 {
+    // 词法分析
     TokenStream stream = TokenParser::parse(io);
 
+    // 文法分析 & 运行
     run(Parser::parse(stream));
 }

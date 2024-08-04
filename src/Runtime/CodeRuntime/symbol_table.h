@@ -45,7 +45,7 @@ public:
         map.erase(name);
     }
 
-    V get(T name)
+    V& get(T name)
     {
         check(name);
         return map[name];

@@ -4,11 +4,9 @@
 
 FileIO::FileIO(std::string path) : _path(path)
 {
-
     fileh = CreateFileW(std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>>().from_bytes(_path).c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_DELETE | FILE_SHARE_WRITE | FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     // 获取文件大小
     read_size();
-
 }
 
 std::string FileIO::read() noexcept
@@ -54,7 +52,7 @@ void FileIO::write(std::string value) noexcept
 time_t FileIO::get_last_time() noexcept
 {
     struct stat result;
-    
+
     if (stat(_path.c_str(), &result) == 0)
     {
         return result.st_mtime;

@@ -50,6 +50,8 @@ FUNCTION_HEADER(_system);
 FUNCTION_HEADER(add);
 FUNCTION_HEADER(append);
 FUNCTION_HEADER(compile_execute);
+FUNCTION_HEADER(compile_share);
+FUNCTION_HEADER(compile_static);
 FUNCTION_HEADER(deep_search_files);
 FUNCTION_HEADER(need_update);
 FUNCTION_HEADER(platform);
