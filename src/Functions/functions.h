@@ -47,6 +47,7 @@
     } while (0)
 
 FUNCTION_HEADER(_system);
+FUNCTION_HEADER(_remove);
 FUNCTION_HEADER(add);
 FUNCTION_HEADER(append);
 FUNCTION_HEADER(compile_execute);

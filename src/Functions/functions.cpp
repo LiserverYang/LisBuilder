@@ -16,4 +16,5 @@ void init_functions()
     REGIST(append);
 
     function_table.regist("system", _system);
+    function_table.regist("remove", _remove);
 }

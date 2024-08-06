@@ -13,6 +13,9 @@ set("cpp_version", "20");
 set("files", deep_search_files(${source_dir}, ".cpp"));
 set("arguments", []);
 
+// This file is for building exe not lib
+remove("files", "./src\main.cpp");
+
 if (${debug})
 {
     set("o_level", "0");
@@ -28,7 +31,14 @@ set("include_dir", ["./src"]);
 
 if (need_update(${files}, add(${output_dir}, add("/", ${project_name}))))
 {
-    print(compile_execute(${project_name}, ${output_dir}, ${files}, ${arguments}, true))
+    // Build lib
+    print(compile_static(${project_name}, ${output_dir}, ${files}, ${arguments}, true));
+
+    // Build exe
+    set("link_dir", [${output_dir}]);
+    set("link_lib", [${project_name}]);
+
+    print(compile_execute(${project_name}, ${output_dir}, [add(${source_dir}, "\\main.cpp")], ${arguments}, true))
 };
 
 print("Build done.")

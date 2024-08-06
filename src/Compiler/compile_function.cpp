@@ -46,6 +46,8 @@ Variable compile(std::vector<Variable> args, CompileTarget target)
     argument.definetions = to_arr(variable_table.get("definetions"));
     argument.undefinetions = to_arr(variable_table.get("undefinetions"));
 
+    argument.target = target;
+
     std::vector<std::string> compile_command = argument.to_string();
 
     for(auto command : compile_command)

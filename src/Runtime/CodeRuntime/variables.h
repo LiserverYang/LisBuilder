@@ -73,6 +73,11 @@ public:
         return type;
     }
 
+    bool operator == (const Variable &other) const
+    {
+        return ((type == other.type) && (value == other.value)); 
+    }
+
 private:
     BasicType type;  // 存储类型
     ValueType value; // 存储值

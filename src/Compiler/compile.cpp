@@ -39,6 +39,8 @@ std::vector<std::string> CompileArgument::to_string()
     std::string compiler_str = CompilerToStr(compiler);
     std::string arguments = vector_to_str(this->arguments);
 
+    std::string links = "";
+
     insert(arguments, "-O" + o_level);
 
     for (auto dir : include_dir)
@@ -48,7 +50,7 @@ std::vector<std::string> CompileArgument::to_string()
         insert(arguments, "-L" + dir);
 
     for (auto lib : link_lib)
-        insert(arguments, "-l" + lib);
+        insert(links, "-l" + lib);
 
     for (auto de : definetions)
         insert(arguments, "-D" + de);
@@ -58,7 +60,7 @@ std::vector<std::string> CompileArgument::to_string()
 
     if (!part_build)
     {
-        result.push_back(compiler_str + arguments + vector_to_str(files_path) + " -o " + target_dir + "/" + target_name);
+        result.push_back(compiler_str + arguments + vector_to_str(files_path) + " -o " + target_dir + "/" + target_name + links);
         return result;
     }
 
@@ -83,7 +85,7 @@ std::vector<std::string> CompileArgument::to_string()
     switch (target)
     {
     case CompileTarget::EXECUTE:
-        result.push_back(compiler_str + arguments + vector_to_str(o_files) + " -o " + target_dir + "/" + target_name);
+        result.push_back(compiler_str + arguments + vector_to_str(o_files) + " -o " + target_dir + "/" + target_name + links);
         break;
     case CompileTarget::STATIC:
         result.push_back("ar -rcs " + target_dir + "/" + target_name + ".lib " + vector_to_str(o_files));
