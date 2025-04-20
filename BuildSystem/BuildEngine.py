@@ -47,8 +47,8 @@ def BuildEngine(SourceFolder: FileIO, TargetList: List[str]) -> None:
 
     Logger.Log(LogLevelEnum.Info, "Found target: " + ", ".join(TargetList))
 
-    # BuildTarget(FileIO(TargetList[1]))
-    BuildTarget(FileIO(TargetList[0]))
+    for target in TargetList:
+        BuildTarget(FileIO(target))
 
     # For clangd, we generic some files
     GenericJson(BuildContext.CompileCommands)
