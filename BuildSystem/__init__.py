@@ -15,4 +15,5 @@ from .ModuleBase import *
 from .TargetTypeEnum import *
 from .BinaryTypeEnum import *
 from .BuildTypeEnum import *
+from .Version import *
 from . import Config
