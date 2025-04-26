@@ -4,7 +4,7 @@ from .FileSystem import FileIO
 from .Logger import Logger
 from .LogLevelEnum import LogLevelEnum
 from .BuildTarget import BuildTarget
-from .Functions import GetAllUnits
+from .Functions import GetInformations
 from .GenericJson import GenericJson
 from .BuildContext import BuildContext
 from .TimeSolver import FormatDuration
@@ -39,6 +39,8 @@ def BuildEngine(SourceFolder: FileIO, TargetList: List[str]) -> None:
         BuildContext.BuildType = BuildTypeEnum.Development
 
     Logger.Log(LogLevelEnum.Info ,f"Build type is {BuildContext.BuildType.name}.")
+
+    GetInformations()
 
     Logger.Log(LogLevelEnum.Info, "Reading all targets.")
 

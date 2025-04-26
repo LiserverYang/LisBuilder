@@ -1,11 +1,15 @@
 # Copyright 2025, LiserverYang. All rights reserved.
 
-import importlib
-import importlib.util
-import sys
 from .FilePermissionsEnum import FilePermissionsEnum
 from .SystemEnum import SystemEnum
 from .FileSystem import FileIO
+from .BuildContext import BuildContext
+from .Functions import GetCurrentSystem
+
+import importlib
+import importlib.util
+import sys
+import subprocess
 
 def GetCurrentSystem() -> SystemEnum:
     """
@@ -78,3 +82,18 @@ def GetClassFromFileIO(FilePath: FileIO, ClassName: str):
     Spec.loader.exec_module(Module)
 
     return getattr(Module, ClassName)
+
+def GetInformations():
+    """
+    All informations like system type, compiler version.
+    """
+
+    BuildContext.SystemType = GetCurrentSystem()
+    
+    BuildContext.GccVersionStr = subprocess.check_output(["gcc --version"]).split("\n")[0].split(" ")[-1].decode("utf-8")
+    SplitedGccVersion = BuildContext.GccVersionStr.split(".")
+    BuildContext.GccVersion = [SplitedGccVersion[0], SplitedGccVersion[1], SplitedGccVersion[2]]
+
+    BuildContext.GxxVersionStr = subprocess.check_output(["g++ --version"]).split("\n")[0].split(" ")[-1].decode("utf-8")
+    SplitedGxxVersion = BuildContext.GxxVersionStr.split(".")
+    BuildContext.GxxVersion = [SplitedGxxVersion[0], SplitedGxxVersion[1], SplitedGxxVersion[2]]
