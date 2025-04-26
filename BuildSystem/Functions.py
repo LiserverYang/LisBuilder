@@ -4,7 +4,6 @@ from .FilePermissionsEnum import FilePermissionsEnum
 from .SystemEnum import SystemEnum
 from .FileSystem import FileIO
 from .BuildContext import BuildContext
-from .Functions import GetCurrentSystem
 
 import importlib
 import importlib.util
@@ -90,10 +89,10 @@ def GetInformations():
 
     BuildContext.SystemType = GetCurrentSystem()
     
-    BuildContext.GccVersionStr = subprocess.check_output(["gcc --version"]).split("\n")[0].split(" ")[-1].decode("utf-8")
+    BuildContext.GccVersionStr = subprocess.check_output(["gcc", "--version"]).split("\n")[0].split(" ")[-1].decode("utf-8")
     SplitedGccVersion = BuildContext.GccVersionStr.split(".")
     BuildContext.GccVersion = [SplitedGccVersion[0], SplitedGccVersion[1], SplitedGccVersion[2]]
 
-    BuildContext.GxxVersionStr = subprocess.check_output(["g++ --version"]).split("\n")[0].split(" ")[-1].decode("utf-8")
+    BuildContext.GxxVersionStr = subprocess.check_output(["g++", "--version"]).split("\n")[0].split(" ")[-1].decode("utf-8")
     SplitedGxxVersion = BuildContext.GxxVersionStr.split(".")
     BuildContext.GxxVersion = [SplitedGxxVersion[0], SplitedGxxVersion[1], SplitedGxxVersion[2]]
