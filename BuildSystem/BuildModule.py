@@ -180,7 +180,7 @@ def BuildModule(ModuleName: str):
         BuildResult = os.system(link_command)
     elif BuildContext.ModuleConfiguration[ModuleID].BinaryType == BinaryTypeEnum.StaticLib:
         # Build static lib
-        link_command = f"ar rcs {BinaryFilesDir}/{LibPrefix}{ModuleName}.a {' '.join(COFilesList)} {' '.join(CxxOFilesList)} {ModuleAddedArguments} {TargetAddedArguments}"
+        link_command = f"ar rcs {BinaryFilesDir}/{LibPrefix}{ModuleName}.a {' '.join(COFilesList)} {' '.join(CxxOFilesList)}"
         for depend in DependsModules:
             if BuildContext.ModuleConfiguration[BuildContext.BuildOrder.index(depend)].BinaryType == BinaryTypeEnum.StaticLib:
                 link_command += f" {depend}"
