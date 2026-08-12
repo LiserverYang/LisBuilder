@@ -8,3 +8,4 @@ __pycache__
 *.pyc
 lstdlib
 compile_commands.json
+!Binaries/libzstd.lib
