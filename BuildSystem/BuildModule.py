@@ -696,13 +696,19 @@ def BuildModule(ModuleName: str):
         DepPath = _DependencyFilePath(MiddleFilesDir, CppFile)
         CxxOFilesList.append(ObjectPath)
 
+        # NOTE: the CUDA include is appended conditionally, but `-c` and
+        # `-I{IncludePaths}` are ALWAYS present. An earlier version wrapped the
+        # whole trailing clause in a ternary (`... if UseCuda else " "`), which
+        # dropped `-c` and the include paths for non-CUDA targets and silently
+        # produced empty objects (g++ compiled-but-didn't-link without -c).
         BuildCommand: str = (
             f"g++ {CppFile} -o {ObjectPath} -std={CxxStanderd} "
             f"-MMD -MP -MF {DepPath} "
             f"{ModuleAddedArguments} {TargetAddedArguments} "
-            f"-I{IncludePaths} -c "
-            f"-I'{cuda_include}' " if BuildContext.TargetConfiguration.UseCuda else " "
+            f"-I{IncludePaths} -c"
         )
+        if BuildContext.TargetConfiguration.UseCuda:
+            BuildCommand += f" -I'{cuda_include}'"
         BuildContext.CompileCommands.append(TransformCommand(BuildCommand, CppFile))
         CompileCommands.append((CppFile, BuildCommand))
 
