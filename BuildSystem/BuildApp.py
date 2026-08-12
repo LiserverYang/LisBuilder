@@ -131,6 +131,11 @@ def BuildApp(SourceFolder: FileIO, TargetList: List[str]) -> None:
         action="store_true",
     )
     parser.add_argument(
+        "--format",
+        help="Format all module source files in place with clang-format -i (no build)",
+        action="store_true",
+    )
+    parser.add_argument(
         "--llvm-position",
         help="The position of llvm.",
         default="",

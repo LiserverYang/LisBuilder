@@ -8,7 +8,7 @@ from .BinaryTypeEnum import BinaryTypeEnum
 from .Functions import GetCurrentSystem
 from .SystemEnum import SystemEnum
 from .TestModule import TestModule, GetTestExePath
-from .FormatCheck import CheckFormat
+from .FormatCheck import CheckFormat, FormatFile
 from .ModuleBase import ModuleBase
 
 from typing import List, Tuple
@@ -155,6 +155,23 @@ def _CollectSourceFiles(RootFolder: FileIO) -> Tuple[List[str], List[str], List[
 
     Walk(RootFolder)
     return CFiles, CppFiles, CuFiles
+
+
+def _CollectFormatFiles(ModuleRoot: str) -> List[str]:
+    """All C/C++/CUDA sources and headers under *ModuleRoot*.
+
+    The format check/format step covers EVERY file of the module (not just the
+    ones that happen to recompile this run) — with cached objects the old
+    fresh-only set was empty, so `--enable-format-check` silently checked
+    nothing on an up-to-date tree.
+    """
+    Extensions = (".c", ".cc", ".cpp", ".cu", ".h", ".hpp")
+    Files: List[str] = []
+    for DirPath, _DirNames, FileNames in os.walk(ModuleRoot):
+        for Name in FileNames:
+            if Name.endswith(Extensions):
+                Files.append(os.path.join(DirPath, Name))
+    return Files
 
 
 # --------------------------------------------------------------------------- #
@@ -639,6 +656,35 @@ def BuildModule(ModuleName: str):
     if AnyModuleUsesCuda:
         LinkDependsStr += " -L/usr/local/cuda/lib64/ -lcudart"
 
+    # --- Format check / auto-format -------------------------------------- #
+    # Runs BEFORE the skip check: an up-to-date module used to bypass it, so
+    # `--enable-format-check` silently checked nothing locally (CI only worked
+    # because a fresh checkout has no cached objects).
+    if ModuleConfiguration.EnableFormatCheck:
+        FormatFiles: List[str] = _CollectFormatFiles(ModuleRoot)
+        if BuildContext.Arguments.format:
+            # Format-only mode: reformat every file in place, then stop.
+            for File in FormatFiles:
+                if FormatFile(File) != 0:
+                    Logger.Log(
+                        LogLevelEnum.Error,
+                        f"clang-format failed on {File}",
+                        True,
+                        -1,
+                    )
+            BuildContext.BuildedModule[ModuleID] = True
+            return
+        if BuildContext.Arguments.enable_format_check:
+            for File in FormatFiles:
+                if CheckFormat(File) != 0:
+                    Logger.Log(
+                        LogLevelEnum.Error,
+                        f"Format check failed in file {File}, "
+                        f"see log for detailed informations",
+                        True,
+                        1,
+                    )
+
     # --- Can we skip this whole module? ---------------------------------- #
     AllDependsSkiped: bool = all(
         BuildContext.SkipedModule[BuildContext.BuildOrder.index(Depend)]
@@ -693,21 +739,6 @@ def BuildModule(ModuleName: str):
                 CxxStanderd,
             )
         return
-
-    # --- Optional format check ------------------------------------------- #
-    if (
-        ModuleConfiguration.EnableFormatCheck
-        and BuildContext.Arguments.enable_format_check
-    ):
-        for File in WaitCompileCppFilesList:
-            if CheckFormat(File) != 0:
-                Logger.Log(
-                    LogLevelEnum.Error,
-                    f"Format check failed in file {File}, "
-                    f"see log for detailed informations",
-                    True,
-                    1,
-                )
 
     # --- Per-source compile commands ------------------------------------- #
     def TransformCommand(BuildCommand: str, SourceName: str) -> dict:
