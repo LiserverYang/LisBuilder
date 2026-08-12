@@ -1,7 +1,7 @@
 # Copyright 2025, LiserverYang. All rights reserved.
 
 import time
-from . import LogLevelEnum
+from .LogLevelEnum import LogLevelEnum
 
 import colorama
 
