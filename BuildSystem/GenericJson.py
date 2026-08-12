@@ -19,15 +19,24 @@ def GenericJson(Commands: List[Dict[str, any]]):
     if BuildContext.Arguments.donot_generic_cc_json:
         return
 
-    if not FileIO("./compile_commands.json").Exists():
-        with open("./compile_commands.json", "w") as f:
+    # Anchor to the repo root so the file always lands at <root>/compile_commands.json
+    # even when the build is invoked from another cwd.
+    RootPath = getattr(BuildContext, "RootPath", "")
+    JsonPath = (
+        os.path.join(RootPath, "compile_commands.json")
+        if RootPath
+        else "./compile_commands.json"
+    )
+
+    if not FileIO(JsonPath).Exists():
+        with open(JsonPath, "w") as f:
             json.dump(Commands, f)
         return
 
     hash_map: Dict[str, int] = {}
     commands = []
 
-    with open("./compile_commands.json", "r") as f:
+    with open(JsonPath, "r") as f:
         commands = json.load(f)
 
         for i in range(0, len(commands)):
@@ -42,5 +51,5 @@ def GenericJson(Commands: List[Dict[str, any]]):
             elif hash_map[index] != 0:
                 commands[hash_map[index] - 1] = item
 
-    with open("./compile_commands.json", "w") as f:
+    with open(JsonPath, "w") as f:
         json.dump(commands, f)

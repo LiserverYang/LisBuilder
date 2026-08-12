@@ -53,13 +53,14 @@ def _CleanBuildArtifacts(TargetList: List[str]) -> None:
             os.remove(P)
 
     # Binaries: archives, executables and the copied stdlib. The BuildSystem/
-    # package and READMEs live in the same tree and must NOT be touched.
+    # package, READMEs and the TRACKED dependency libzstd.lib (required by the
+    # LLVM link) live in the same tree and must NOT be touched — there is no
+    # `.lib` rule here, or --clean would delete libzstd.lib and break the link.
     ExeSuffix: str = ".exe" if GetCurrentSystem() == SystemEnum.Windows else ""
     for Name in os.listdir(BinsDir):
         Full: str = os.path.join(BinsDir, Name)
         if (
             Name.endswith(".a")
-            or Name.endswith(".lib")
             or (ExeSuffix and Name.endswith(ExeSuffix))
             or (Name == "lstdlib" and os.path.isdir(Full))
         ):
