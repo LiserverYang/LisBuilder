@@ -17,6 +17,7 @@ import subprocess
 import concurrent.futures
 import hashlib
 import os
+import re
 import sys
 import threading
 import platform
@@ -210,9 +211,15 @@ def _ParseDependencyFile(DepFilePath: str) -> List[str]:
     # Collapse line continuations so we can split on whitespace.
     Content = Content.replace("\\\r\n", " ").replace("\\\n", " ")
 
-    ColonIndex = Content.find(":")
-    if ColonIndex < 0:
+    # The rule delimiter is the first colon FOLLOWED BY WHITESPACE. A naive
+    # `Content.find(":")` matches the drive letter in the absolute paths we now
+    # emit after RootPath anchoring (e.g. "F:/..."), which corrupts the parse
+    # and makes every object look stale. Drive colons are always followed by
+    # '/' or '\', never whitespace, so the lookahead is unambiguous.
+    RuleMatch = re.search(r":(?=\s)", Content)
+    if not RuleMatch:
         return []
+    ColonIndex = RuleMatch.start()
 
     # Everything up to the next newline is the first rule's dependency
     # list. Subsequent lines (from -MP) are phony targets we ignore.
