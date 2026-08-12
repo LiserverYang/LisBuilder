@@ -13,6 +13,7 @@ from .ModuleBase import ModuleBase
 
 from typing import List, Tuple
 
+import glob
 import subprocess
 import concurrent.futures
 import hashlib
@@ -454,6 +455,23 @@ def _CleanupOrphanObjects(
             pass
 
 
+def _TestsNeedUpdate(TestPath: str, TestExePath: str) -> bool:
+    """Whether the gtest binary must be rebuilt and re-run.
+
+    True when the binary is missing or any ``Tests/*.cpp`` is newer than it.
+    This lets a SKIPPED module still re-run tests after a test-only change or
+    a previously failed test run — without it, the whole-module skip would
+    silently swallow both.
+    """
+    if not os.path.exists(TestExePath):
+        return True
+    TestTime: float = os.stat(TestExePath).st_mtime
+    for Src in glob.glob(os.path.join(TestPath, "*.cpp")):
+        if FileIO(Src).LastChange() >= TestTime:
+            return True
+    return False
+
+
 # --------------------------------------------------------------------------- #
 # Main entry
 # --------------------------------------------------------------------------- #
@@ -577,55 +595,9 @@ def BuildModule(ModuleName: str):
 
     TargetExists: bool = FileIO(TargetOutputPath).Exists()
 
-    # --- Can we skip this whole module? ---------------------------------- #
-    AllDependsSkiped: bool = all(
-        BuildContext.SkipedModule[BuildContext.BuildOrder.index(Depend)]
-        for Depend in ModuleConfiguration.ModulesDependOn
-    )
-    NothingToCompile = (
-        not WaitCompileCFilesList
-        and not WaitCompileCppFilesList
-        and not WaitCompileCuFilesList
-    )
-
-    DependArtifacts: List[str] = _DependArtifacts(
-        ModuleConfiguration, TargetName, BinaryFilesDir
-    )
-
-    # The skip must NOT fire unless the target is actually newer than every
-    # input AND (for StaticLib) the archive member set is still complete.
-    # Without the member-set check, a deleted source would keep its stale
-    # member in libCompiler.a forever and lisc.exe would keep linking it.
-    ModuleUpToDate: bool = (
-        NothingToCompile
-        and AllDependsSkiped
-        and TargetExists
-        and _ModuleTargetUpToDate(
-            ModuleConfiguration, TargetOutputPath, AllObjectPaths, DependArtifacts
-        )
-    )
-
-    if ModuleConfiguration.AutoSkiped or ModuleUpToDate:
-        BuildContext.BuildedModule[ModuleID] = True
-        BuildContext.SkipedModule[ModuleID] = True
-        return
-
-    # --- Optional format check ------------------------------------------- #
-    if (
-        ModuleConfiguration.EnableFormatCheck
-        and BuildContext.Arguments.enable_format_check
-    ):
-        for File in WaitCompileCppFilesList:
-            if CheckFormat(File) != 0:
-                Logger.Log(
-                    LogLevelEnum.Error,
-                    f"Format check failed in file {File}, "
-                    f"see log for detailed informations",
-                    True,
-                    1,
-                )
-
     # --- Assemble compile flags ------------------------------------------ #
+    # Computed BEFORE the skip check: the skip path may still need to rebuild
+    # and re-run the gtest binary (see _TestsNeedUpdate below).
     CStanderd: str = ModuleConfiguration.CStanderd
     CxxStanderd: str = ModuleConfiguration.CxxStanderd
     ModuleAddedArguments: str = " ".join(ModuleConfiguration.ArgumentsAdded)
@@ -666,6 +638,76 @@ def BuildModule(ModuleName: str):
     )
     if AnyModuleUsesCuda:
         LinkDependsStr += " -L/usr/local/cuda/lib64/ -lcudart"
+
+    # --- Can we skip this whole module? ---------------------------------- #
+    AllDependsSkiped: bool = all(
+        BuildContext.SkipedModule[BuildContext.BuildOrder.index(Depend)]
+        for Depend in ModuleConfiguration.ModulesDependOn
+    )
+    NothingToCompile = (
+        not WaitCompileCFilesList
+        and not WaitCompileCppFilesList
+        and not WaitCompileCuFilesList
+    )
+
+    DependArtifacts: List[str] = _DependArtifacts(
+        ModuleConfiguration, TargetName, BinaryFilesDir
+    )
+
+    # The skip must NOT fire unless the target is actually newer than every
+    # input AND (for StaticLib) the archive member set is still complete.
+    # Without the member-set check, a deleted source would keep its stale
+    # member in libCompiler.a forever and lisc.exe would keep linking it.
+    ModuleUpToDate: bool = (
+        NothingToCompile
+        and AllDependsSkiped
+        and TargetExists
+        and _ModuleTargetUpToDate(
+            ModuleConfiguration, TargetOutputPath, AllObjectPaths, DependArtifacts
+        )
+    )
+
+    if ModuleConfiguration.AutoSkiped or ModuleUpToDate:
+        BuildContext.BuildedModule[ModuleID] = True
+        BuildContext.SkipedModule[ModuleID] = True
+        # A skipped module may still need its tests: the gtest binary is
+        # rebuilt fresh whenever it runs, so re-run when the binary is missing
+        # or any Tests/*.cpp is newer — otherwise a test-only change or a
+        # previously failed test run would silently never re-run.
+        if (
+            not ModuleConfiguration.AutoSkiped
+            and BuildContext.Arguments.enable_tests
+            and ModuleConfiguration.EnableTests
+            and _TestsNeedUpdate(
+                os.path.join(ModuleRoot, "Tests"),
+                TestModule.GetTestExePath(),
+            )
+        ):
+            TestModule(
+                ModuleName,
+                ModuleRoot,
+                CxxOFilesList,
+                f"{ModuleAddedArguments} {TargetAddedArguments} "
+                f"-I{IncludePaths} -L{BinaryFilesDir}/ {LinkDependsStr} "
+                f"-l{LibPrefix}{ModuleName}",
+                CxxStanderd,
+            )
+        return
+
+    # --- Optional format check ------------------------------------------- #
+    if (
+        ModuleConfiguration.EnableFormatCheck
+        and BuildContext.Arguments.enable_format_check
+    ):
+        for File in WaitCompileCppFilesList:
+            if CheckFormat(File) != 0:
+                Logger.Log(
+                    LogLevelEnum.Error,
+                    f"Format check failed in file {File}, "
+                    f"see log for detailed informations",
+                    True,
+                    1,
+                )
 
     # --- Per-source compile commands ------------------------------------- #
     def TransformCommand(BuildCommand: str, SourceName: str) -> dict:

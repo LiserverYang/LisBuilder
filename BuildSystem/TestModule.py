@@ -13,6 +13,21 @@ import subprocess
 import os
 
 
+def GetTestExePath() -> str:
+    """Path of the shared gtest binary (root-anchored, platform suffix).
+
+    BuildModule uses this for the skip-path "do tests need re-running" check,
+    so the path logic lives in exactly one place.
+    """
+    RootPath: str = getattr(BuildContext, "RootPath", "")
+    Base: str = (
+        os.path.join(RootPath, "Build", "Intermediate", "test")
+        if RootPath
+        else "./Build/Intermediate/test"
+    )
+    return Base + (".exe" if BuildContext.SystemType == SystemEnum.Windows else "")
+
+
 def TestModule(
     ModuleName: str,
     ModulePath: str,
@@ -36,13 +51,11 @@ def TestModule(
 
     # Anchor the test binary path to the repo root so it is stable across
     # changes of the invocation cwd.
-    RootPath: str = getattr(BuildContext, "RootPath", "")
-    TestExeDir: str = os.path.join(RootPath, "Build", "Intermediate") if RootPath else "./Build/Intermediate"
-    TestExePath: str = os.path.join(TestExeDir, "test")
+    ExePosition = GetTestExePath()
 
     BuildResult = os.system(
         f"g++ -std={CxxStanderd} {TestPath}*.cpp {' '.join(ModuleOFiles)} "
-        f"-o {TestExePath} {ArgumentsAdded} -I{ModulePath}/Public/ "
+        f"-o {ExePosition} {ArgumentsAdded} -I{ModulePath}/Public/ "
         f"{LLVMConfig.LLVMCommand}"
     )
 
@@ -54,12 +67,6 @@ def TestModule(
             True,
             -1,
         )
-
-    ExePosition = (
-        TestExePath + ".exe"
-        if BuildContext.SystemType == SystemEnum.Windows
-        else TestExePath
-    )
 
     # The test binary links the MinGW runtime (libstdc++-6.dll & friends) found
     # next to g++. That directory is not necessarily on the inherited PATH, so
