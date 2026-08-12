@@ -63,6 +63,30 @@ def _ShortHash(Text: str, Length: int = 8) -> str:
     return hashlib.md5(Text.encode("utf-8")).hexdigest()[:Length]
 
 
+def _StableSourceKey(SourceFile: str) -> str:
+    """
+    cwd / drive-letter-case-stable identity for a source file.
+
+    The hash is the only thing that distinguishes objects for same-named
+    sources in one module, so its input must not change when the invocation
+    cwd or the drive-letter spelling changes — otherwise every build recompiles
+    everything under a new hash and orphans the old objects forever.
+
+    Anchor to ``BuildContext.RootPath`` (the repo root) and lower-case the
+    drive via ``os.path.normcase`` on Windows.
+    """
+    AbsSource: str = os.path.abspath(SourceFile)
+    RootPath: str = getattr(BuildContext, "RootPath", "")
+    if RootPath:
+        try:
+            Relative: str = os.path.relpath(AbsSource, RootPath)
+            if not Relative.startswith(".."):
+                AbsSource = os.path.normpath(os.path.join(RootPath, Relative))
+        except ValueError:
+            pass  # different drive: keep the absolute path
+    return os.path.normcase(AbsSource)
+
+
 # --------------------------------------------------------------------------- #
 # Platform helpers
 # --------------------------------------------------------------------------- #
@@ -86,7 +110,7 @@ def _IsCudaFile(file: str) -> bool:
 def _CudaObjectFilePath(middle_dir: str, source: str) -> str:
     """CUDA 目标文件路径"""
     base = FileIO(source).FileName()
-    hash_str = _ShortHash(os.path.abspath(source))
+    hash_str = _ShortHash(_StableSourceKey(source))
     return f"{middle_dir}/{base}.{hash_str}.cubin.o"
 
 def _FindCudaPath() -> str:
@@ -138,13 +162,13 @@ def _CollectSourceFiles(RootFolder: FileIO) -> Tuple[List[str], List[str], List[
 
 def _ObjectFilePath(MiddleFilesDir: str, SourceFile: str) -> str:
     Base = FileIO(SourceFile).FileName()
-    Hash = _ShortHash(os.path.abspath(SourceFile))
+    Hash = _ShortHash(_StableSourceKey(SourceFile))
     return f"{MiddleFilesDir}/{Base}.{Hash}.o"
 
 
 def _DependencyFilePath(MiddleFilesDir: str, SourceFile: str) -> str:
     Base = FileIO(SourceFile).FileName()
-    Hash = _ShortHash(os.path.abspath(SourceFile))
+    Hash = _ShortHash(_StableSourceKey(SourceFile))
     return f"{MiddleFilesDir}/{Base}.{Hash}.d"
 
 
@@ -196,6 +220,23 @@ def _ParseDependencyFile(DepFilePath: str) -> List[str]:
     return [Token for Token in FirstRule.split() if Token]
 
 
+def _ResolveDepPath(Dependency: str) -> str:
+    """
+    Resolve a path listed inside a ``.d`` file.
+
+    ``gcc`` writes the compiled source as a *relative* path when it was given
+    one on the command line (``Source/Compiler/Private/...``), while headers
+    come back absolute. Resolving the relative form against the repo root
+    makes the freshness check independent of the invocation cwd.
+    """
+    if os.path.isabs(Dependency):
+        return Dependency
+    RootPath: str = getattr(BuildContext, "RootPath", "")
+    if RootPath:
+        return os.path.abspath(os.path.join(RootPath, Dependency))
+    return os.path.abspath(Dependency)
+
+
 def _ObjectIsUpToDate(
     SourceFile: str,
     ObjectFile: FileIO,
@@ -224,7 +265,7 @@ def _ObjectIsUpToDate(
 
     DepFilePath = _DependencyFilePath(MiddleFilesDir, SourceFile)
     for Dependency in _ParseDependencyFile(DepFilePath):
-        DepFile = FileIO(Dependency)
+        DepFile = FileIO(_ResolveDepPath(Dependency))
         if not DepFile.Exists():
             return False
         if DepFile.LastChange() >= ObjectTime:
@@ -248,6 +289,162 @@ def _DynamicLibOutputPath(BinaryFilesDir: str, LibPrefix: str, ModuleName: str) 
 
 def _StaticLibOutputPath(BinaryFilesDir: str, LibPrefix: str, ModuleName: str) -> str:
     return f"{BinaryFilesDir}/lib{LibPrefix}{ModuleName}.a"
+
+
+# --------------------------------------------------------------------------- #
+# Up-to-date checks (target vs its inputs)
+# --------------------------------------------------------------------------- #
+#
+# The whole-module skip must only fire when the TARGET is actually newer than
+# every input (objects + dependency artifacts). Without this, a deleted source
+# or a deleted/stale target would be silently skipped and lisc.exe would keep
+# linking old members — the bug CLAUDE.md used to paper over with a manual
+# `rm -rf`.
+
+
+def _TargetIsUpToDate(
+    TargetPath: str,
+    ObjectPaths: List[str],
+    ExtraInputPaths: List[str],
+) -> bool:
+    """True iff ``TargetPath`` exists and is newer than every input."""
+    if not os.path.exists(TargetPath):
+        return False
+    TargetTime: float = os.stat(TargetPath).st_mtime
+    for Obj in ObjectPaths:
+        if not os.path.exists(Obj):
+            return False
+        if os.stat(Obj).st_mtime >= TargetTime:
+            return False
+    for Extra in ExtraInputPaths:
+        # Absent extras (e.g. libMagicEnum.a, which is never produced) are fine.
+        if not os.path.exists(Extra):
+            continue
+        if os.stat(Extra).st_mtime >= TargetTime:
+            return False
+    return True
+
+
+def _DependArtifacts(
+    ModuleConfiguration: ModuleBase,
+    TargetName: str,
+    BinaryFilesDir: str,
+    OnlyStaticLibs: bool = False,
+) -> List[str]:
+    """Artifact paths of every linkable dependency of *ModuleConfiguration*.
+
+    This is the single source of truth reused by the up-to-date check, the
+    archive member set and the link command (``-l`` names at the call site).
+
+    :param OnlyStaticLibs: when True, only StaticLib dependencies are returned
+        — the ones whose ``.a`` gets appended *into* this module's archive.
+    """
+    Paths: List[str] = []
+    for Name in ModuleConfiguration.ModulesDependOn:
+        DependConfig: ModuleBase = BuildContext.ModuleConfiguration[
+            BuildContext.BuildOrder.index(Name)
+        ]
+        if not DependConfig.LinkThisModule:
+            continue
+        Prefix: str = f"{TargetName}-" if DependConfig.EnableBinaryLibPrefix else ""
+        if DependConfig.BinaryType == BinaryTypeEnum.StaticLib:
+            Paths.append(_StaticLibOutputPath(BinaryFilesDir, Prefix, Name))
+        elif (
+            DependConfig.BinaryType == BinaryTypeEnum.DynamicLib
+            and not OnlyStaticLibs
+        ):
+            Paths.append(_DynamicLibOutputPath(BinaryFilesDir, Prefix, Name))
+    return Paths
+
+
+def _ArchiveMemberNames(ArchivePath: str) -> set:
+    """Member basenames via ``ar t``; empty set if missing/unreadable."""
+    if not os.path.exists(ArchivePath):
+        return set()
+    Result = subprocess.run(
+        ["ar", "t", ArchivePath], capture_output=True, text=True
+    )
+    if Result.returncode != 0:
+        return set()
+    return {Line.strip() for Line in Result.stdout.splitlines() if Line.strip()}
+
+
+def _ArchiveMemberSetMatches(
+    ArchivePath: str,
+    OwnObjectPaths: List[str],
+    DependArtifacts: List[str],
+) -> bool:
+    """Whether *ArchivePath*'s members match the expected set.
+
+    ``ar rcs`` replaces same-name members but never removes members that are no
+    longer passed in, so an archive silently keeps objects of deleted/renamed
+    sources. We detect that by diffing ``ar t`` against the expected members.
+
+    Required ⊆ Actual ⊆ Allowed:
+
+    * Required — every own object basename must be a member.
+    * Allowed — required ∪ {dep archive basenames} ∪ {dep archive members},
+      which tolerates GNU ar BOTH nesting an ``.a`` operand (observed: the dep
+      archive appears as one member) and inlining its members. Only members
+      that are provably stale (old-hash orphans, deleted/renamed sources) are
+      flagged.
+    """
+    Required: set = {os.path.basename(p) for p in OwnObjectPaths}
+    Allowed: set = set(Required)
+    for Dep in DependArtifacts:
+        if not os.path.exists(Dep):
+            continue
+        Allowed.add(os.path.basename(Dep))
+        Allowed |= _ArchiveMemberNames(Dep)
+    Actual: set = _ArchiveMemberNames(ArchivePath)
+    return Required.issubset(Actual) and Actual.issubset(Allowed)
+
+
+def _ModuleTargetUpToDate(
+    ModuleConfiguration: ModuleBase,
+    TargetOutputPath: str,
+    AllObjectPaths: List[str],
+    DependArtifacts: List[str],
+) -> bool:
+    """mtime freshness + (for StaticLib) archive member-set integrity."""
+    if not _TargetIsUpToDate(TargetOutputPath, AllObjectPaths, DependArtifacts):
+        return False
+    if ModuleConfiguration.BinaryType == BinaryTypeEnum.StaticLib:
+        return _ArchiveMemberSetMatches(
+            TargetOutputPath, AllObjectPaths, DependArtifacts
+        )
+    return True
+
+
+def _CleanupOrphanObjects(
+    MiddleFilesDir: str, CurrentObjectPaths: List[str]
+) -> None:
+    """Delete ``.o``/``.d`` files in *MiddleFilesDir* owned by no current source.
+
+    Permanently removes old-hash orphans (from before the stable-key fix) and
+    objects of deleted sources. Idempotent afterwards.
+    """
+    if not os.path.isdir(MiddleFilesDir):
+        return
+    Expected: set = set()
+    for Obj in CurrentObjectPaths:
+        Base: str = os.path.basename(Obj)
+        Expected.add(Base)
+        # "Foo.cpp.<hash>.o" -> "Foo.cpp.<hash>.d"
+        # "Foo.cu.<hash>.cubin.o" -> "Foo.cu.<hash>.d" (nvcc dep path has no .cubin)
+        if Base.endswith(".cubin.o"):
+            Expected.add(Base[: -len(".cubin.o")] + ".d")
+        else:
+            Expected.add(Base[:-2] + ".d")
+    for Name in os.listdir(MiddleFilesDir):
+        if not (Name.endswith(".o") or Name.endswith(".d")):
+            continue
+        if Name in Expected:
+            continue
+        try:
+            os.remove(os.path.join(MiddleFilesDir, Name))
+        except OSError:
+            pass
 
 
 # --------------------------------------------------------------------------- #
@@ -290,14 +487,21 @@ def BuildModule(ModuleName: str):
     )
 
     # --- Directory layout ------------------------------------------------- #
-    MiddleFilesDir: str = f"./Build/Intermediate/{TargetName}/{ModuleName}"
-    BinaryFilesDir: str = "./Build/Binaries"
+    # Anchor to the repo root so the build works from any cwd.
+    RootPath: str = getattr(BuildContext, "RootPath", "")
+    BuildRoot: str = os.path.join(RootPath, "Build") if RootPath else "./Build"
+    MiddleFilesDir: str = f"{BuildRoot}/Intermediate/{TargetName}/{ModuleName}"
+    BinaryFilesDir: str = f"{BuildRoot}/Binaries"
 
     os.makedirs(MiddleFilesDir, exist_ok=True)
     os.makedirs(BinaryFilesDir, exist_ok=True)
 
     # --- Discover sources ------------------------------------------------- #
-    ModuleRoot: str = os.path.dirname(BuildContext.ModulePath[ModuleID])
+    ModuleRoot: str = os.path.dirname(
+        os.path.abspath(
+            os.path.join(RootPath, BuildContext.ModulePath[ModuleID])
+        )
+    )
     WaitCompileCFilesList, WaitCompileCppFilesList, WaitCompileCuFilesList = _CollectSourceFiles(
         FileIO(f"{ModuleRoot}/Private/")
     )
@@ -305,6 +509,19 @@ def BuildModule(ModuleName: str):
     COFilesList: List[str] = []
     CxxOFilesList: List[str] = []
     CuOFilesList: List[str] = []
+
+    # Every object this module expects for its current source list — used by
+    # the whole-module skip and the archive member-set check, and to purge
+    # orphaned .o/.d files from deleted/renamed sources.
+    AllObjectPaths: List[str] = [
+        _ObjectFilePath(MiddleFilesDir, f)
+        for f in WaitCompileCFilesList + WaitCompileCppFilesList
+    ] + [
+        _CudaObjectFilePath(MiddleFilesDir, f)
+        for f in WaitCompileCuFilesList
+    ]
+    if not BuildContext.Arguments.donot_build_files:
+        _CleanupOrphanObjects(MiddleFilesDir, AllObjectPaths)
 
     # --- Prune sources whose objects are already up to date --------------- #
     # This is where header-dependency tracking kicks in: _ObjectIsUpToDate
@@ -364,9 +581,24 @@ def BuildModule(ModuleName: str):
         and not WaitCompileCuFilesList
     )
 
-    if ModuleConfiguration.AutoSkiped or (
-        NothingToCompile and AllDependsSkiped and TargetExists
-    ):
+    DependArtifacts: List[str] = _DependArtifacts(
+        ModuleConfiguration, TargetName, BinaryFilesDir
+    )
+
+    # The skip must NOT fire unless the target is actually newer than every
+    # input AND (for StaticLib) the archive member set is still complete.
+    # Without the member-set check, a deleted source would keep its stale
+    # member in libCompiler.a forever and lisc.exe would keep linking it.
+    ModuleUpToDate: bool = (
+        NothingToCompile
+        and AllDependsSkiped
+        and TargetExists
+        and _ModuleTargetUpToDate(
+            ModuleConfiguration, TargetOutputPath, AllObjectPaths, DependArtifacts
+        )
+    )
+
+    if ModuleConfiguration.AutoSkiped or ModuleUpToDate:
         BuildContext.BuildedModule[ModuleID] = True
         BuildContext.SkipedModule[ModuleID] = True
         return
@@ -566,24 +798,34 @@ def BuildModule(ModuleName: str):
 
     else:  # StaticLib
         StaticLibPath = _StaticLibOutputPath(BinaryFilesDir, LibPrefix, ModuleName)
-        LinkCommand = f"ar rcs {StaticLibPath} {ObjectsStr}"
+        OwnObjectPaths: List[str] = COFilesList + CxxOFilesList + CuOFilesList
+        StaticDependArtifacts: List[str] = _DependArtifacts(
+            ModuleConfiguration, TargetName, BinaryFilesDir, OnlyStaticLibs=True
+        )
 
-        for Name in ModuleConfiguration.ModulesDependOn:
-            DependConfig: ModuleBase = BuildContext.ModuleConfiguration[
-                BuildContext.BuildOrder.index(Name)
-            ]
-            if not (
-                DependConfig.LinkThisModule
-                and DependConfig.BinaryType == BinaryTypeEnum.StaticLib
+        if _ModuleTargetUpToDate(
+            ModuleConfiguration,
+            StaticLibPath,
+            OwnObjectPaths,
+            DependArtifacts,
+        ):
+            # Archive is already fresh (mtime) and its member set is complete:
+            # nothing to do — the fast no-op path.
+            BuildResult = 0
+        else:
+            # The member set changed (source deleted/renamed) → GNU ar rewrites
+            # the whole archive on any mutation anyway, so recreate it from
+            # scratch to drop stale members instead of leaving them behind.
+            if os.path.exists(StaticLibPath) and not _ArchiveMemberSetMatches(
+                StaticLibPath, OwnObjectPaths, DependArtifacts
             ):
-                continue
+                os.remove(StaticLibPath)
 
-            DependPrefix = (
-                f"{TargetName}-" if DependConfig.EnableBinaryLibPrefix else ""
-            )
-            LinkCommand += f" {BinaryFilesDir}/lib{DependPrefix}{Name}.a"
-
-        BuildResult = os.system(LinkCommand)
+            LinkCommand = f"ar rcs {StaticLibPath} {ObjectsStr}"
+            for Dep in StaticDependArtifacts:
+                if os.path.exists(Dep):
+                    LinkCommand += f" {Dep}"
+            BuildResult = os.system(LinkCommand)
 
     if BuildResult == 0:
         BuildContext.BuildedModule[ModuleID] = True
@@ -604,6 +846,7 @@ def BuildModule(ModuleName: str):
             os.path.dirname(BuildContext.ModulePath[ModuleID]),
             CxxOFilesList,
             f"{ModuleAddedArguments} {TargetAddedArguments} "
-            f"-I{IncludePaths} -L ./Build/Binaries/ {LinkDependsStr} "
+            f"-I{IncludePaths} -L{BinaryFilesDir}/ {LinkDependsStr} "
             f"-l{LibPrefix}{ModuleName}",
+            ModuleConfiguration.CxxStanderd,
         )

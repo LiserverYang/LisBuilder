@@ -22,6 +22,55 @@ import traceback
 import argparse
 
 
+def _CleanBuildArtifacts(TargetList: List[str]) -> None:
+    """Remove all build artifacts for every target in *TargetList*.
+
+    This replaces the old manual ritual::
+
+        rm -rf Build/Binaries/libCompiler.a \\
+               Build/Binaries/lisc.exe      \\
+               Build/Intermediate/lisc/Main
+    """
+    Root: str = BuildContext.RootPath
+    BuildRoot: str = os.path.join(Root, "Build") if Root else "./Build"
+    InterDir: str = os.path.join(BuildRoot, "Intermediate")
+    BinsDir: str = os.path.join(BuildRoot, "Binaries")
+
+    # Each target owns an Intermediate/<TargetName>/ directory.
+    for TargetPath in TargetList:
+        TargetName: str = os.path.basename(TargetPath)
+        # "lisc.target.py" -> "lisc"
+        if TargetName.endswith(".target.py"):
+            TargetName = TargetName[: -len(".target.py")]
+        TargetInter: str = os.path.join(InterDir, TargetName)
+        if os.path.isdir(TargetInter):
+            shutil.rmtree(TargetInter, ignore_errors=True)
+
+    # Shared test binary lives at Build/Intermediate/test(.exe).
+    for Name in ("test", "test.exe"):
+        P: str = os.path.join(InterDir, Name)
+        if os.path.exists(P):
+            os.remove(P)
+
+    # Binaries: archives, executables and the copied stdlib. The BuildSystem/
+    # package and READMEs live in the same tree and must NOT be touched.
+    ExeSuffix: str = ".exe" if GetCurrentSystem() == SystemEnum.Windows else ""
+    for Name in os.listdir(BinsDir):
+        Full: str = os.path.join(BinsDir, Name)
+        if (
+            Name.endswith(".a")
+            or Name.endswith(".lib")
+            or (ExeSuffix and Name.endswith(ExeSuffix))
+            or (Name == "lstdlib" and os.path.isdir(Full))
+        ):
+            if os.path.isdir(Full):
+                shutil.rmtree(Full, ignore_errors=True)
+            else:
+                os.remove(Full)
+
+    Logger.Log(LogLevelEnum.Info, "Removed all build artifacts (--clean).")
+
+
 def BuildApp(SourceFolder: FileIO, TargetList: List[str]) -> None:
     """
     Build the application.
@@ -91,42 +140,75 @@ def BuildApp(SourceFolder: FileIO, TargetList: List[str]) -> None:
         action="store_true"
     )
     parser.add_argument("--threads", help="Set the thread number", type=int, default=1)
+    parser.add_argument(
+        "--clean",
+        help="Remove all build artifacts for the target before building.",
+        action="store_true",
+    )
     BuildContext.Arguments = parser.parse_args()
+
+    # Anchor every path to the repo root (the dir containing SourceFolder) so
+    # the build works regardless of the invocation cwd.
+    SourceFolder = FileIO(os.path.abspath(SourceFolder.FilePathStr))
+    BuildContext.RootPath = os.path.dirname(SourceFolder.FilePathStr)
+    TargetList = [
+        t if os.path.isabs(t) else os.path.join(BuildContext.RootPath, t)
+        for t in TargetList
+    ]
+
+    if BuildContext.Arguments.clean:
+        _CleanBuildArtifacts(TargetList)
 
     if BuildContext.Arguments.llvm_position != "":
         InitLLVMConfig(BuildContext.Arguments.llvm_position)
 
-    Logger.Log(LogLevelEnum.Info, f"Python version {sys.version}")
+    try:
+        Logger.Log(LogLevelEnum.Info, f"Python version {sys.version}")
 
-    # Get Build type
-    match BuildContext.Arguments.build_type:
-        case "Debug":
-            BuildContext.BuildType = BuildTypeEnum.Debug
-        case "Release":
-            BuildContext.BuildType = BuildTypeEnum.Release
-        case "Development":
-            BuildContext.BuildType = BuildTypeEnum.Development
+        # Get Build type
+        match BuildContext.Arguments.build_type:
+            case "Debug":
+                BuildContext.BuildType = BuildTypeEnum.Debug
+            case "Release":
+                BuildContext.BuildType = BuildTypeEnum.Release
+            case "Development":
+                BuildContext.BuildType = BuildTypeEnum.Development
 
-    Logger.Log(LogLevelEnum.Info, f"Build type is {BuildContext.BuildType.name}.")
+        Logger.Log(LogLevelEnum.Info, f"Build type is {BuildContext.BuildType.name}.")
 
-    GetInformations()
+        GetInformations()
 
-    Logger.Log(LogLevelEnum.Info, f"System is {BuildContext.SystemType.name}.")
+        Logger.Log(LogLevelEnum.Info, f"System is {BuildContext.SystemType.name}.")
 
-    Logger.Log(LogLevelEnum.Info, "Reading all targets.")
+        Logger.Log(LogLevelEnum.Info, "Reading all targets.")
 
-    # Start timing
-    StartTime = time.time()
+        # Start timing
+        StartTime = time.time()
 
-    Logger.Log(LogLevelEnum.Info, "Found target: " + ", ".join(TargetList))
+        Logger.Log(LogLevelEnum.Info, "Found target: " + ", ".join(TargetList))
 
-    for target in TargetList:
-        BuildTarget(FileIO(target))
+        for target in TargetList:
+            BuildTarget(FileIO(target))
 
-    # For clangd, we generic some files
-    GenericJson(BuildContext.CompileCommands)
+        # For clangd, we generic some files
+        GenericJson(BuildContext.CompileCommands)
 
-    Logger.Log(
-        LogLevelEnum.Info,
-        f"Build done. Use time in toal: {FormatDuration(time.time() - StartTime)}",
-    )
+        Logger.Log(
+            LogLevelEnum.Info,
+            f"Build done. Use time in toal: {FormatDuration(time.time() - StartTime)}",
+        )
+    except SystemExit:
+        # Logger.Log(..., bExit=True) exits deliberately; do not swallow it.
+        raise
+    except KeyboardInterrupt:
+        Logger.Log(LogLevelEnum.Error, "Build interrupted by user.", True, -1)
+    except Exception as Exc:
+        # Unexpected failure: keep the traceback for diagnosis, but exit through
+        # the logger so the exit code stays consistent and the message is clear.
+        print(traceback.format_exc(), file=sys.stderr)
+        Logger.Log(
+            LogLevelEnum.Error,
+            f"Build failed: {Exc}",
+            True,
+            -1,
+        )
