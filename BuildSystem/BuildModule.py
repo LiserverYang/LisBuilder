@@ -7,7 +7,7 @@ from .FileSystem import FileIO
 from .BinaryTypeEnum import BinaryTypeEnum
 from .Functions import GetCurrentSystem
 from .SystemEnum import SystemEnum
-from .TestModule import TestModule
+from .TestModule import TestModule, GetTestExePath
 from .FormatCheck import CheckFormat
 from .ModuleBase import ModuleBase
 
@@ -680,7 +680,7 @@ def BuildModule(ModuleName: str):
             and ModuleConfiguration.EnableTests
             and _TestsNeedUpdate(
                 os.path.join(ModuleRoot, "Tests"),
-                TestModule.GetTestExePath(),
+                GetTestExePath(),
             )
         ):
             TestModule(
