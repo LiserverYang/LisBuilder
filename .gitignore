@@ -1,0 +1,10 @@
+# 构建产物(不进入版本控制)
+*.o
+*.a
+*.exe
+*.dll
+*.d
+__pycache__
+*.pyc
+lstdlib
+compile_commands.json

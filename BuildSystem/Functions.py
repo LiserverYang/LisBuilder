@@ -5,6 +5,8 @@ from .SystemEnum import SystemEnum
 from .FileSystem import FileIO
 from .BuildContext import BuildContext
 from .Config import LLVMConfig
+from .Logger import Logger
+from .LogLevelEnum import LogLevelEnum
 
 import importlib
 import importlib.util
@@ -96,35 +98,61 @@ def GetInformations():
 
     BuildContext.SystemType = GetCurrentSystem()
 
-    BuildContext.GccVersionStr = (
-        subprocess.check_output(["gcc", "--version"])
-        .decode("utf-8")
-        .split("\n")[0]
-        .split(" ")[-1]
-    )
-    SplitedGccVersion = BuildContext.GccVersionStr.split(".")
-    BuildContext.GccVersion = [
-        SplitedGccVersion[0],
-        SplitedGccVersion[1],
-        SplitedGccVersion[2],
-    ]
+    try:
+        BuildContext.GccVersionStr = (
+            subprocess.check_output(["gcc", "--version"])
+            .decode("utf-8")
+            .split("\n")[0]
+            .split(" ")[-1]
+        )
+        SplitedGccVersion = BuildContext.GccVersionStr.split(".")
+        BuildContext.GccVersion = [
+            int(SplitedGccVersion[0]),
+            int(SplitedGccVersion[1]),
+            int(SplitedGccVersion[2]),
+        ]
+    except (FileNotFoundError, subprocess.CalledProcessError, IndexError, ValueError):
+        Logger.Log(
+            LogLevelEnum.Error,
+            "gcc not found or not on PATH. Please install MinGW and add it to PATH.",
+            True,
+            -1,
+        )
 
-    BuildContext.GxxVersionStr = (
-        subprocess.check_output(["g++", "--version"])
-        .decode("utf-8")
-        .split("\n")[0]
-        .split(" ")[-1]
-    )
-    SplitedGxxVersion = BuildContext.GxxVersionStr.split(".")
-    BuildContext.GxxVersion = [
-        SplitedGxxVersion[0],
-        SplitedGxxVersion[1],
-        SplitedGxxVersion[2],
-    ]
+    try:
+        BuildContext.GxxVersionStr = (
+            subprocess.check_output(["g++", "--version"])
+            .decode("utf-8")
+            .split("\n")[0]
+            .split(" ")[-1]
+        )
+        SplitedGxxVersion = BuildContext.GxxVersionStr.split(".")
+        BuildContext.GxxVersion = [
+            int(SplitedGxxVersion[0]),
+            int(SplitedGxxVersion[1]),
+            int(SplitedGxxVersion[2]),
+        ]
+    except (FileNotFoundError, subprocess.CalledProcessError, IndexError, ValueError):
+        Logger.Log(
+            LogLevelEnum.Error,
+            "g++ not found or not on PATH. Please install MinGW and add it to PATH.",
+            True,
+            -1,
+        )
 
     import os
-    
+
     if os.name == "nt":
-        BuildContext.GxxPosition = subprocess.check_output(["where", "g++"], text=True, encoding="utf-8", errors="ignore").strip()
+        try:
+            BuildContext.GxxPosition = subprocess.check_output(
+                ["where", "g++"], text=True, encoding="utf-8", errors="ignore"
+            ).strip()
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            BuildContext.GxxPosition = ""
     else:
-        BuildContext.GxxPosition = subprocess.check_output(["which", "g++"], text=True).strip()
+        try:
+            BuildContext.GxxPosition = subprocess.check_output(
+                ["which", "g++"], text=True
+            ).strip()
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            BuildContext.GxxPosition = ""

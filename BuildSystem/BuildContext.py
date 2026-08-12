@@ -27,6 +27,10 @@ class TBuildContext:
     # This is for clangd
     CompileCommands = []
 
+    # cwd-independent project root (dir containing SourceFolder).
+    # Set by BuildApp before any module is processed.
+    RootPath: str = ""
+
     # For other modules
     SystemType: SystemEnum = SystemEnum.Other
     GccVersion: List[int] = [0, 0, 1]
