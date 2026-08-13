@@ -2,7 +2,7 @@
 
 from typing import List, Dict
 
-from Build.BuildSystem import BuildContext
+from .BuildContext import BuildContext
 
 from .FileSystem import FileIO
 
