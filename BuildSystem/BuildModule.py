@@ -523,6 +523,10 @@ def BuildModule(ModuleName: str):
 
     # --- Verify dependencies were built before this module --------------- #
     for Depend in ModuleConfiguration.ModulesDependOn:
+        # External dependencies (another target's archive) are not tracked
+        # here — the link resolves them from Binaries.
+        if _DependIndex(Depend) < 0:
+            continue
         if not BuildContext.BuildedModule[BuildContext.BuildOrder.index(Depend)]:
             Logger.Log(
                 LogLevelEnum.Error,
