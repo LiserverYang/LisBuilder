@@ -20,6 +20,10 @@ class TargetBase:
     # Only can chenge it when bBuildAllmodules = False
     BuildModulesList: list[str] = []
 
+    # Modules to skip even when bBuildAllmodules is True (e.g. a second
+    # EntryPoint module that belongs to a different target's executable).
+    ModulesExclude: list[str] = []
+
     ArgumentsAdded: list[str] = []
 
     UseCuda = False

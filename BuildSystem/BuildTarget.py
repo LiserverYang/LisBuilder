@@ -50,6 +50,8 @@ def BuildTarget(TargetPath: FileIO) -> None:
             ModuleInstance.Configuration()
             # Check if should build
             if (not ModuleInstance.BuildThisModule) or (
+                MouduleName in TargetInstance.ModulesExclude
+            ) or (
                 (not TargetInstance.bBuildAllmodules)
                 and not (MouduleName in TargetInstance.BuildModulesList)
             ):
