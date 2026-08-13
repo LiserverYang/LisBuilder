@@ -350,6 +350,13 @@ def _TargetIsUpToDate(
     return True
 
 
+def _DependIndex(Name: str) -> int:
+    """Index of dependency `Name` in BuildOrder, or -1 for an EXTERNAL
+    dependency (not part of this target — built by another target; the link
+    references the no-prefix lib<Name>.a already sitting in Binaries)."""
+    return BuildContext.BuildOrder.index(Name) if Name in BuildContext.BuildOrder else -1
+
+
 def _DependArtifacts(
     ModuleConfiguration: ModuleBase,
     TargetName: str,
@@ -366,9 +373,12 @@ def _DependArtifacts(
     """
     Paths: List[str] = []
     for Name in ModuleConfiguration.ModulesDependOn:
-        DependConfig: ModuleBase = BuildContext.ModuleConfiguration[
-            BuildContext.BuildOrder.index(Name)
-        ]
+        Index: int = _DependIndex(Name)
+        if Index < 0:
+            # External dependency: assume a no-prefix static archive.
+            Paths.append(_StaticLibOutputPath(BinaryFilesDir, "", Name))
+            continue
+        DependConfig: ModuleBase = BuildContext.ModuleConfiguration[Index]
         if not DependConfig.LinkThisModule:
             continue
         Prefix: str = f"{TargetName}-" if DependConfig.EnableBinaryLibPrefix else ""
@@ -623,22 +633,35 @@ def BuildModule(ModuleName: str):
     HostAddedArguments: str = " ".join(HostArgumentsAdded)
     HostAddedArgumentsSplited: str = ",".join(HostArgumentsAdded)
 
-    IncludePaths: str = " -I".join(
-        os.path.abspath(
-            os.path.dirname(
-                BuildContext.ModulePath[BuildContext.BuildOrder.index(Depend)]
+    def _IncludeDir(Depend: str) -> str:
+        Index: int = _DependIndex(Depend)
+        if Index >= 0:
+            DependPath: str = BuildContext.ModulePath[Index]
+            return os.path.abspath(os.path.dirname(DependPath) + "/Public/")
+        # External dependency: convention <SourceRoot>/<Depend>/Public — the
+        # module directory layout (Public/ headers) is a global convention, so
+        # the include path needs no access to the dependency's build config.
+        return os.path.abspath(
+            os.path.join(
+                os.path.dirname(os.path.dirname(BuildContext.ModulePath[ModuleID])),
+                Depend,
+                "Public",
             )
-            + "/Public/"
         )
-        for Depend in ModuleConfiguration.ModulesDependOn + [ModuleName]
+
+    IncludePaths: str = " -I".join(
+        _IncludeDir(Depend) for Depend in ModuleConfiguration.ModulesDependOn + [ModuleName]
     )
 
     # -l flags for every linkable dependency.
     DependsModules: List[str] = []
     for Name in ModuleConfiguration.ModulesDependOn:
-        DependConfig: ModuleBase = BuildContext.ModuleConfiguration[
-            BuildContext.BuildOrder.index(Name)
-        ]
+        Index: int = _DependIndex(Name)
+        if Index < 0:
+            # External dependency: no-prefix lib<Name>.a.
+            DependsModules.append(Name)
+            continue
+        DependConfig: ModuleBase = BuildContext.ModuleConfiguration[Index]
         if not DependConfig.LinkThisModule:
             continue
         if DependConfig.EnableBinaryLibPrefix:
@@ -650,7 +673,8 @@ def BuildModule(ModuleName: str):
 
     # Add CUDA link flags if this module or any dependency uses CUDA
     AnyModuleUsesCuda = ModuleConfiguration.UseCUDA or any(
-        BuildContext.ModuleConfiguration[BuildContext.BuildOrder.index(Name)].UseCUDA
+        _DependIndex(Name) >= 0
+        and BuildContext.ModuleConfiguration[_DependIndex(Name)].UseCUDA
         for Name in ModuleConfiguration.ModulesDependOn
     )
     if AnyModuleUsesCuda:
@@ -687,7 +711,8 @@ def BuildModule(ModuleName: str):
 
     # --- Can we skip this whole module? ---------------------------------- #
     AllDependsSkiped: bool = all(
-        BuildContext.SkipedModule[BuildContext.BuildOrder.index(Depend)]
+        _DependIndex(Depend) < 0
+        or BuildContext.SkipedModule[BuildContext.BuildOrder.index(Depend)]
         for Depend in ModuleConfiguration.ModulesDependOn
     )
     NothingToCompile = (

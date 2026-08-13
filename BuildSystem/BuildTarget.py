@@ -62,10 +62,18 @@ def BuildTarget(TargetPath: FileIO) -> None:
             ModulesPathList.append(Module)
             ModulesConfigurations.append(ModuleInstance)
 
-    # Build depends links
+    # Build depends links. A dependency that is NOT in this target's module
+    # list is an EXTERNAL dependency: another target builds it (its archive
+    # sits in Binaries), so no topological edge is needed here — the link
+    # command references lib<Name>.a directly.
     for i in range(0, len(ModulesList)):
         Graph.AddLinks(
-            i, [HashMap[name] for name in ModulesConfigurations[i].ModulesDependOn]
+            i,
+            [
+                HashMap[name]
+                for name in ModulesConfigurations[i].ModulesDependOn
+                if name in HashMap
+            ],
         )
 
     BuildOrder, Circled = Graph.TopologicalSort()
